@@ -10,15 +10,16 @@ using System.Threading;
 using System.Runtime.InteropServices;
 using System.Configuration;
 using System.Web.Configuration;
+using Bitrix.Services;
 
 namespace Bitrix.Modules
 {
     /// <summary>
     /// Summary description for buckup
     /// </summary>
-    public static class BuckupMeneger
+    public class BuckupMeneger
     {
-        public static Process rar = new Process();
+        public Process rar = new Process();
         public static FileInfo[] GetFiles(BuckupOptions options)
         {
             DirectoryInfo dir = new DirectoryInfo(options.BuckupFolder);
@@ -27,14 +28,14 @@ namespace Bitrix.Modules
             return dir.GetFiles("*.rar", SearchOption.TopDirectoryOnly);
         }
 
-        public static void Buckup(BuckupOptions options)
+        public void Buckup(BuckupOptions options)
         {
             DoDBBuckup(options);
 
             DoRAR(options);
         }
 
-        private static void DoRAR(BuckupOptions options)
+        private void DoRAR(BuckupOptions options)
         {
 
             rar.StartInfo.WindowStyle = ProcessWindowStyle.Hidden;
@@ -45,7 +46,7 @@ namespace Bitrix.Modules
             if (!string.IsNullOrEmpty(rar.StartInfo.Arguments))
             {
                 rar.Start();
-                if(options.StepDuration > 0 || options.Sleep > 0)
+                if (options.StepDuration > 0 || options.Sleep > 0)
                     ThreadPool.QueueUserWorkItem(new WaitCallback(DoWork), options);
 
                 Thread.Sleep(500);
@@ -58,7 +59,7 @@ namespace Bitrix.Modules
                 return;
         }
 
-        public static void DoWork(object data)
+        public void DoWork(object data)
         {
             try
             {
@@ -84,13 +85,13 @@ namespace Bitrix.Modules
             catch { }
         }
 
-        public static void Abort(Process rar)
+        public void Abort(Process rar)
         {
             if (rar != null && !rar.HasExited)
                 rar.Kill();
         }
 
-        private static void DoDBBuckup(BuckupOptions options)
+        private void DoDBBuckup(BuckupOptions options)
         {
             if (options.IncludeDatabase)
             {
@@ -233,7 +234,7 @@ namespace Bitrix.Modules
 
             if (this.ExcludeFiles.Length > 0)
             {
-                filesListText = String.Join("\r\n", this.ExcludeFiles)+"\r\n";
+                filesListText = String.Join("\r\n", this.ExcludeFiles) + "\r\n";
                 File.AppendAllText(excludeFileList, filesListText);
             }
 
@@ -249,7 +250,7 @@ namespace Bitrix.Modules
                 File.AppendAllText(excludeFileList, filesListText);
             }
 
-            key += string.Format(" -x@{0}", excludeFileList);
+            key += string.Format(" -x@\"{0}\"", excludeFileList);
 
             folderOrfileOrFileList = Path.GetTempFileName();
 
@@ -262,7 +263,7 @@ namespace Bitrix.Modules
 
             folderOrfileOrFileList = string.Format(" \"@{0}\"", folderOrfileOrFileList);
 
-            commandLine = string.Format("{0} {1} {2} {3}", command, key, buckup, folderOrfileOrFileList);
+            commandLine = string.Format("{0} {1} \"{2}\" {3}", command, key, buckup, folderOrfileOrFileList);
             return commandLine;
         }
 
@@ -304,5 +305,40 @@ namespace Bitrix.Modules
             return query;
         }
     }
+
+    public class BackupAgentExecutor : IBXAgentExecutor
+    {
+        public BackupAgentExecutor() { }
+
+        public BuckupOptions FromBase64(string base64String)
+        {
+            byte[] toDecodeAsBytes = System.Convert.FromBase64String(base64String);
+            string toDecodeAsString = System.Text.Encoding.Unicode.GetString(toDecodeAsBytes);
+
+            System.Xml.Serialization.XmlSerializer serializer = new System.Xml.Serialization.XmlSerializer(typeof(BuckupOptions));
+
+            using (TextReader reader = new StringReader(toDecodeAsString))
+            {
+                return serializer.Deserialize(reader) as BuckupOptions;
+            }
+        }
+
+
+        #region IBXAgentExecutor Members
+
+        public bool Execute(BXSchedulerAgent agent, DataTypes.BXParamsBag<object> parameters)
+        {
+
+            BuckupOptions option = FromBase64(parameters["BackupOptions"].ToString());
+
+            BuckupMeneger meneger = new BuckupMeneger();
+            meneger.Buckup(option);
+
+            return true;
+        }
+
+        #endregion
+    }
+
 
 }
